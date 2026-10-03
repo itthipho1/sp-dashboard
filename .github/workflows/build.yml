@@ -16,7 +16,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install deps
-      run: npm install
+      run: npm ci --ignore-scripts
     
     - name: Build plugin
       run: make build
@@ -24,9 +24,8 @@ jobs:
     - name: Upload plugin artifact
       uses: actions/upload-artifact@v4
       with:
-        name: sp-dashboard-plugin
+        name: sp-areas-dashboard-plugin
         path: |
-          sp-dashboard/*
-          !sp-dashboard/manifest.json.template
+          sp-areas-dashboard.zip
         retention-days: 90
         compression-level: 0

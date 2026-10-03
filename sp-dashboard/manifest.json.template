@@ -1,19 +1,20 @@
 {
-  "id": "sp-dashboard",
-  "name": "Dashboard",
+  "id": "sp-areas-dashboard",
+  "name": "Areas Dashboard",
   "version": "{{VERSION}}",
   "description": "{{DESCRIPTION}}",
   "manifestVersion": 1,
-  "minSupVersion": "14.0.0",
-  "author": "Douglas Cooper",
+  "minSupVersion": "19.1.0",
+  "author": "Itthiphol Piromnam; based on Douglas Cooper and Anthony Hanel's Dashboard",
   "icon": "icon.svg",
   "iFrame": true,
   "sidePanel": false,
+  "hooks": ["action"],
   "permissions": [
     "getTasks",
     "getArchivedTasks",
     "getAllProjects",
-    "persistDataSynced",
-    "loadSyncedData"
+    "getAllTags",
+    "selectTask"
   ]
 }

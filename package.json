@@ -1,13 +1,15 @@
 {
-  "name": "sp-dashboard",
-  "version": "1.6.0",
-  "description": "A visual dashboard plugin providing metrics, charts, and daily summaries of your tasks and tracked time.",
+  "name": "sp-areas-dashboard",
+  "version": "0.1.0-alpha.1",
+  "description": "Area reports for Super Productivity using native task tags and exclusive tracked-time totals.",
   "type": "module",
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "build:min": "./scripts/minify.sh sp-dashboard",
+    "build": "node scripts/build-plugin.mjs",
+    "build:min": "node scripts/build-plugin.mjs",
+    "preview": "node scripts/preview.mjs",
     "check:syntax": "node scripts/check-js.js",
     "screenshot": "node scripts/screenshot.js"
   },
