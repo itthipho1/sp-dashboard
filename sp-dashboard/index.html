@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard</title>
+  <title>Areas Dashboard</title>
   
   <style>
     /* --- BASE STYLES --- */
@@ -440,6 +440,28 @@
       .print-only { display: block; }
       #print-header { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.75rem; }
     }
+    /* Areas reports use the same cards and theme as the upstream dashboard. */
+    .areas-intro { color: var(--text-color-muted, #aaa); line-height: 1.6; margin: 0 0 1rem; }
+    .areas-setup { border: 1px solid var(--divider-color, #333); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; }
+    .areas-setup summary { cursor: pointer; font-weight: 600; }
+    .areas-setup label { display: inline-flex; align-items: center; gap: 0.5rem; }
+    #area-tag-options { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; margin-top: 0.75rem; }
+    .areas-warning { border-left: 3px solid #fbbf24; background: rgba(251,191,36,0.08); padding: 0.75rem 1rem; margin-bottom: 1rem; line-height: 1.5; }
+    .area-bar { height: 6px; border-radius: 3px; background: rgba(96,165,250,0.16); margin-top: 0.6rem; }
+    .area-bar-fill { height: 100%; border-radius: inherit; background: #60a5fa; }
+    .area-group { width: 100%; text-align: left; color: inherit; cursor: pointer; font: inherit; }
+    .area-group[aria-pressed="true"] { outline: 2px solid var(--c-primary, #60a5fa); }
+    .area-group.conflict .area-bar-fill { background: #fbbf24; }
+    .area-group.unassigned .area-bar-fill { background: #9ca3af; }
+    .area-group-meta { color: var(--text-color-muted, #aaa); font-size: 0.85rem; margin-top: 0.5rem; }
+    #areas-groups { margin-bottom: 1.5rem; }
+    .areas-table-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin: 1.5rem 0 0.5rem; }
+    .areas-task-link { font: inherit; color: var(--c-primary, #60a5fa); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+    .areas-loading { color: var(--text-color-muted, #aaa); margin-bottom: 0.75rem; }
+    body.data-unavailable .view-content { visibility: hidden; }
+    body.data-unavailable .share-wrap { display: none; }
+    .areas-filter { font: inherit; color: inherit; border: 1px solid var(--divider-color, #333); background: transparent; border-radius: 5px; padding: 0.35rem 0.65rem; cursor: pointer; }
+    @media print { .areas-setup, .areas-filter { display: none !important; } }
   </style>
 </head>
 <body>
@@ -452,8 +474,8 @@
     <!-- Header -->
     <header class="header">
       <div class="title-area">
-        <h1 class="title">Dashboard</h1>
-        <p class="subtitle">Select a time period to view metrics</p>
+        <h1 class="title">Areas Dashboard</h1>
+        <p class="subtitle">Your time across the areas of your life</p>
       </div>
       
       <div class="controls">
@@ -497,10 +519,12 @@
       </div>
     </header>
 
+    <div id="areas-load-status" class="areas-loading" role="status" aria-live="polite">Loading task data…</div>
     <!-- Main Card Container -->
     <div class="main-card">
       <!-- Tabs -->
       <div class="tabs">
+        <button id="tab-btn-areas" class="tab-btn" onclick="switchTab('areas')">Areas</button>
         <button id="tab-btn-dashboard" class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
         <button id="tab-btn-details" class="tab-btn" onclick="switchTab('details')">Detailed List</button>
         <button id="tab-btn-drilldown" class="tab-btn" onclick="switchTab('drilldown')">By Project / Tag</button>
@@ -759,6 +783,31 @@
 
       </div>
 
+      <!-- Areas are selected native tags; time is allocated to one bucket. -->
+      <div id="view-areas" class="view-content hidden">
+        <p class="areas-intro">See where your time goes across Yard, Vehicle, Home, and other areas of your life. Each task counts once. Other tags do not add extra time.</p>
+        <details class="areas-setup">
+          <summary>Choose your area tags</summary>
+          <p class="areas-intro">Use native tags like <strong>Area: Yard</strong>, or choose existing tags below. Assign one area to each parent task in Super Productivity; its subtasks share that area.</p>
+          <label for="area-selection-mode">Area tags</label>
+          <select id="area-selection-mode">
+            <option value="auto">Detect tags named Area: …</option>
+            <option value="manual">Choose existing tags</option>
+          </select>
+          <div id="area-tag-options"></div>
+          <p class="areas-intro" id="areas-selection-note"></p>
+        </details>
+        <div class="grid-3" style="margin-bottom:1.25rem">
+          <div class="stat-card"><h3 class="stat-title">Tracked time</h3><div class="stat-value" id="areas-total">—</div><div class="area-group-meta" id="areas-task-count"></div></div>
+          <div class="stat-card"><h3 class="stat-title">Unassigned</h3><div class="stat-value" id="areas-unassigned">—</div><div class="area-group-meta" id="areas-unassigned-count"></div></div>
+          <div class="stat-card"><h3 class="stat-title">Conflicting areas</h3><div class="stat-value" id="areas-conflict">—</div><div class="area-group-meta" id="areas-conflict-count"></div></div>
+        </div>
+        <div id="areas-conflict-warning" class="areas-warning hidden" role="status"></div>
+        <div id="areas-groups" class="grid-3"></div>
+        <div class="areas-table-head"><h3 class="card-title" id="areas-list-title">Tracked tasks</h3><button id="areas-show-all" class="areas-filter hidden" type="button">Show all areas</button></div>
+        <div style="overflow-x:auto"><table class="details-table"><thead><tr><th>Task</th><th>Project</th><th>Area</th><th>Time</th><th>Status</th></tr></thead><tbody id="areas-task-body"></tbody></table></div>
+        <p class="areas-intro" style="font-size:0.8rem;margin-top:1rem">Time uses each parent task’s recorded daily totals and current area assignment. A child-only area tag does not split its parent’s time. Changing an area reclassifies its history. Reports use calendar date presets and the dashboard’s data filters.</p>
+      </div>
     </div>
   </div>
 
@@ -802,7 +851,8 @@
     // One JSON blob in localStorage. Nothing else in this file writes
     // localStorage — every persisted preference goes through here.
     // ==========================================================
-    const SETTINGS_KEY = 'sp-dashboard-settings';
+    /* AREAS_CORE */
+    const SETTINGS_KEY = 'sp-areas-dashboard-settings';
     const SETTINGS_SCHEMA_VERSION = 1;
     const HOUR_MS = 3600000;
 
@@ -815,13 +865,15 @@
       timeFormat: 'hm',             // hm | decimal | minutes
       workingDays: [1, 2, 3, 4, 5],
       hideNonWorkingDays: false,
+      areaSelectionMode: 'auto',
+      areaTagIds: [],
 
       // --- Defaults ---
       // `*Mode` is 'remember' (keep the last used value) or 'pin' (always start
       // from `*Pinned`). `*Last` is the bookkeeping for 'remember'.
       periodMode: 'remember', periodPinned: 'today', periodLast: '',
       dateFromLast: '', dateToLast: '', weekdayLast: '1',
-      tabMode: 'pin', tabPinned: 'dashboard', tabLast: '',
+      tabMode: 'pin', tabPinned: 'areas', tabLast: '',
       barMetricMode: 'remember', barMetricPinned: 'completed', barMetricLast: '',
       pieMetricMode: 'remember', pieMetricPinned: 'completed', pieMetricLast: '',
       pieDimPinned: 'project', pieDimLast: '',
@@ -832,7 +884,6 @@
       includeArchived: true,
       excludedProjects: [],
       excludedTags: [],
-      includeRunningTimer: true,
       showSubtaskRows: false,
       minEntryMs: 0,
       noDueDateOverdue: false,
@@ -859,20 +910,6 @@
       summaryFormat: 'slack'        // slack | markdown | csv
     };
 
-    // The keys this plugin wrote before the settings store existed. Folded in
-    // once on first load, then removed so they can't drift.
-    const LEGACY_KEY_MAP = {
-      'sp-dashboard-date-preset': 'periodLast',
-      'sp-dashboard-date-from': 'dateFromLast',
-      'sp-dashboard-date-to': 'dateToLast',
-      'sp-dashboard-weekday-select': 'weekdayLast',
-      'sp-dashboard-bar-chart-select': 'barMetricLast',
-      'sp-dashboard-pie-chart-select': 'pieMetricLast',
-      'sp-dashboard-pie-dim': 'pieDimLast',
-      'sp-dashboard-drill-dim': 'drillDimLast',
-      'sp-dashboard-drill-entity': 'drillEntityLast'
-    };
-
     const sOpt = (v, l) => ({ v, l });
 
     // The legal values for every enumerated setting, with the labels the UI
@@ -895,7 +932,8 @@
                      sOpt('month', 'This Month'), sOpt('year', 'Past Year'),
                      sOpt('from-weekday', 'Starting from weekday')],
       tabMode: MODE_OPTIONS,
-      tabPinned: [sOpt('dashboard', 'Dashboard'), sOpt('details', 'Detailed List'),
+      areaSelectionMode: [sOpt('auto', 'Detect Area: tags'), sOpt('manual', 'Choose existing tags')],
+      tabPinned: [sOpt('areas', 'Areas'), sOpt('dashboard', 'Dashboard'), sOpt('details', 'Detailed List'),
                   sOpt('drilldown', 'By Project / Tag')],
       barMetricMode: MODE_OPTIONS,
       barMetricPinned: METRIC_OPTIONS,
@@ -928,7 +966,7 @@
     // than their `*Pinned` twin: Period can be left on a custom range.
     const SETTING_LAST_VALUES = {
       periodLast: ['today', 'this-week', 'week', 'month', 'year', 'custom', 'from-weekday'],
-      tabLast: ['dashboard', 'details', 'drilldown'],
+      tabLast: ['areas', 'dashboard', 'details', 'drilldown'],
       barMetricLast: ['time', 'completed', 'overdue', 'late'],
       pieMetricLast: ['time', 'completed', 'overdue', 'late'],
       pieDimLast: ['project', 'tag'],
@@ -1024,26 +1062,12 @@
       }
       if (!stored || typeof stored !== 'object' || Array.isArray(stored)) stored = {};
 
-      let migrated = false;
-      Object.keys(LEGACY_KEY_MAP).forEach(oldKey => {
-        let val = null;
-        try { val = localStorage.getItem(oldKey); } catch (e) { /* ignore */ }
-        if (val === null) return;
-        const newKey = LEGACY_KEY_MAP[oldKey];
-        if (stored[newKey] === undefined || stored[newKey] === '') stored[newKey] = val;
-        try { localStorage.removeItem(oldKey); } catch (e) { /* ignore */ }
-        migrated = true;
-      });
-
       const merged = {};
       Object.keys(DEFAULT_SETTINGS).forEach(key => {
         merged[key] = coerceSetting(key, DEFAULT_SETTINGS[key], stored[key]);
       });
       merged.schemaVersion = SETTINGS_SCHEMA_VERSION;
 
-      if (migrated) {
-        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged)); } catch (e) { /* ignore */ }
-      }
       return merged;
     };
 
@@ -1136,7 +1160,7 @@
     };
 
     // --- TAB LOGIC ---
-    const TAB_IDS = ['dashboard', 'details', 'drilldown'];
+    const TAB_IDS = ['dashboard', 'details', 'drilldown', 'areas'];
     const switchTab = (tabId) => {
       // Fall back rather than throw: switchTab runs during init from a stored
       // setting, and a null dereference here would abort the rest of the script
@@ -1156,6 +1180,10 @@
     let cachedProjects = [];
     let cachedTags = [];
     let latestMetrics = null;
+    let latestAreaReport = null;
+    let hasDataSnapshot = false;
+    let snapshotArchiveSetting = null;
+    let selectedAreaGroupId = '';
     let pieDimension = 'project';
     let currentSort = { key: getSetting('sortKey'), dir: getSetting('sortDir') }; // sorting state for details table
     let liveUpdateInterval = null;
@@ -1239,20 +1267,20 @@
       customContainer.classList.toggle('hidden', e.target.value !== 'custom');
       weekdayPickerContainer.classList.toggle('hidden', e.target.value !== 'from-weekday');
       rememberSetting('periodLast', e.target.value);
-      processData(cachedTasks, cachedProjects, cachedTags);
+      if (hasDataSnapshot) processData(cachedTasks, cachedProjects, cachedTags);
     });
 
     dateFromInput.addEventListener('change', () => {
       rememberSetting('dateFromLast', dateFromInput.value);
-      processData(cachedTasks, cachedProjects, cachedTags);
+      if (hasDataSnapshot) processData(cachedTasks, cachedProjects, cachedTags);
     });
     dateToInput.addEventListener('change', () => {
       rememberSetting('dateToLast', dateToInput.value);
-      processData(cachedTasks, cachedProjects, cachedTags);
+      if (hasDataSnapshot) processData(cachedTasks, cachedProjects, cachedTags);
     });
     weekdaySelect.addEventListener('change', () => {
       rememberSetting('weekdayLast', weekdaySelect.value);
-      processData(cachedTasks, cachedProjects, cachedTags);
+      if (hasDataSnapshot) processData(cachedTasks, cachedProjects, cachedTags);
     });
     barChartSelect.addEventListener('change', () => {
       rememberSetting('barMetricLast', barChartSelect.value);
@@ -1886,8 +1914,109 @@
       return { dueStart, dueEnd };
     };
 
+    // Areas are a separate, exclusive allocation; ordinary tag charts overlap.
+    const renderAreas = () => {
+      if (!latestAreaReport) return;
+      const report = latestAreaReport;
+      const projectMap = new Map(cachedProjects.map(p => [p.id, p.title]));
+      const groupMap = new Map(report.groups.map(g => [g.id, g]));
+      if (!groupMap.has(selectedAreaGroupId)) selectedAreaGroupId = '';
+      document.getElementById('areas-total').textContent = formatTime(report.totalTimeMs);
+      document.getElementById('areas-task-count').textContent = `${report.trackedTaskCount} tracked parent task(s)`;
+      document.getElementById('areas-unassigned').textContent = formatTime(groupMap.get('unassigned').timeMs);
+      document.getElementById('areas-conflict').textContent = formatTime(groupMap.get('conflict').timeMs);
+      document.getElementById('areas-unassigned-count').textContent = `${report.unassignedTaskCount} tracked task(s) without an area`;
+      document.getElementById('areas-conflict-count').textContent = `${report.conflictTaskCount} tracked task(s) with multiple areas`;
+      const warning = document.getElementById('areas-conflict-warning');
+      warning.classList.toggle('hidden', report.conflictTaskCount === 0);
+      warning.textContent = `${report.conflictTaskCount} tracked task(s) have more than one area. Their time appears once in Conflicting areas. Select that card to find the tasks, then keep one area on each parent task.`;
+
+      const manual = getSetting('areaSelectionMode') === 'manual';
+      document.getElementById('area-selection-mode').value = manual ? 'manual' : 'auto';
+      const options = document.getElementById('area-tag-options');
+      options.replaceChildren();
+      const selectedIds = new Set(getSetting('areaTagIds'));
+      const automaticIds = new Set(AreaReports.getAreaTags(cachedTags).map(t => t.id));
+      cachedTags.slice().sort((a,b) => a.title.localeCompare(b.title)).forEach(tag => {
+        const label = document.createElement('label');
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.dataset.areaTagId = tag.id;
+        input.checked = (manual ? selectedIds : automaticIds).has(tag.id);
+        input.disabled = !manual;
+        label.append(input, document.createTextNode(tag.title));
+        options.appendChild(label);
+      });
+      document.getElementById('areas-selection-note').textContent = manual
+        ? 'Your selection is saved on this device. Selecting no tags places all tracked time in Unassigned.'
+        : report.areaTags.length ? 'Area: tags are detected automatically. Create or assign them in Super Productivity.'
+          : 'No Area: tags found. Create one in Super Productivity, or choose existing tags above.';
+
+      const cards = document.getElementById('areas-groups');
+      cards.replaceChildren();
+      report.groups.forEach(group => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = `stat-card area-group ${group.kind}`;
+        card.dataset.areaGroupId = group.id;
+        card.setAttribute('aria-pressed', String(selectedAreaGroupId === group.id));
+        const share = report.totalTimeMs > 0 ? group.timeMs / report.totalTimeMs * 100 : 0;
+        card.innerHTML = `<h3 class="stat-title">${escapeHtml(group.label)}</h3><div class="stat-value">${escapeHtml(formatTime(group.timeMs))}</div><div class="area-group-meta">${share.toFixed(1)}% · ${group.taskCount} tracked task(s)</div><div class="area-bar"><div class="area-bar-fill" style="width:${share}%"></div></div>`;
+        card.addEventListener('click', () => { selectedAreaGroupId = group.id; renderAreas(); });
+        cards.appendChild(card);
+      });
+      const selectedGroup = groupMap.get(selectedAreaGroupId);
+      document.getElementById('areas-list-title').textContent = selectedGroup ? `Tracked tasks · ${selectedGroup.label}` : 'Tracked tasks · All areas';
+      document.getElementById('areas-show-all').classList.toggle('hidden', !selectedGroup);
+      const body = document.getElementById('areas-task-body');
+      body.replaceChildren();
+      const entries = (selectedGroup ? selectedGroup.entries : report.entries).slice().sort((a,b) => b.timeMs - a.timeMs);
+      entries.forEach(entry => {
+        const tr = document.createElement('tr');
+        const taskCell = document.createElement('td');
+        if (window.PluginAPI && typeof window.PluginAPI.selectTask === 'function') {
+          const link = document.createElement('button');
+          link.type = 'button'; link.className = 'areas-task-link'; link.textContent = entry.title;
+          link.addEventListener('click', async () => {
+            try { await window.PluginAPI.selectTask(entry.taskId); }
+            catch (e) { showToast('Could not open that task', true); }
+          });
+          taskCell.appendChild(link);
+        } else { taskCell.textContent = entry.title; }
+        tr.appendChild(taskCell);
+        const names = entry.areaIds.map(id => report.areaTags.find(t => t.id === id)?.label || id);
+        const areaLabel = entry.groupId === 'conflict' ? `Conflicting areas: ${names.join(', ')}` : groupMap.get(entry.groupId).label;
+        [projectMap.get(entry.projectId) || 'Uncategorized', areaLabel, formatTime(entry.timeMs), entry.isDone ? 'Done' : 'In progress'].forEach(text => {
+          const td = document.createElement('td'); td.textContent = text; tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+      if (!entries.length) {
+        const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 5;
+        td.textContent = 'No tracked time in this area for the selected period.'; tr.appendChild(td); body.appendChild(tr);
+      }
+    };
+
+    document.getElementById('areas-show-all').addEventListener('click', () => { selectedAreaGroupId = ''; renderAreas(); });
+    document.getElementById('area-selection-mode').addEventListener('change', e => {
+      if (e.target.value === 'manual' && getSetting('areaSelectionMode') === 'auto') {
+        SETTINGS.areaTagIds = AreaReports.getAreaTags(cachedTags).map(t => t.id);
+      }
+      setSetting('areaSelectionMode', e.target.value);
+    });
+    document.getElementById('area-tag-options').addEventListener('change', e => {
+      if (getSetting('areaSelectionMode') !== 'manual' || !e.target.dataset.areaTagId) return;
+      toggleArraySetting('areaTagIds', e.target.dataset.areaTagId);
+    });
+
     // process tasks/projects into metrics and update UI
     const processData = (tasksArr, projectsArr, tagsArr = []) => {
+      hasDataSnapshot = true;
+      document.body.classList.remove('data-unavailable');
+      document.getElementById('share-btn').disabled = false;
+      cachedTasks = tasksArr;
+      cachedProjects = projectsArr;
+      cachedTags = sanitizeIncomingTags(tagsArr);
       // determine date range from preset/selectors
       const preset = document.getElementById('date-preset').value;
       let dateFromStr, dateToStr;
@@ -1945,7 +2074,6 @@
       const excludedTags = new Set(getSetting('excludedTags') || []);
       const minEntryMs = Number(getSetting('minEntryMs')) || 0;
       const showSubtaskRows = !!getSetting('showSubtaskRows');
-      const includeRunningTimer = !!getSetting('includeRunningTimer');
       const noDueDateOverdue = !!getSetting('noDueDateOverdue');
 
       // Excluded work is removed before anything is counted, so every metric,
@@ -1955,6 +2083,14 @@
         : tasksArr.filter(task =>
             !excludedProjects.has(projectNameOf(task)) &&
             !tagNamesOf(task).some(n => excludedTags.has(n)));
+
+      latestAreaReport = AreaReports.buildAreaReport(visibleTasks, cachedTags, dateRange, {
+        selectedAreaTagIds: getSetting('areaSelectionMode') === 'manual' ? getSetting('areaTagIds') : undefined,
+        minEntryMs,
+        // Native day totals already include running tracking. Do not invent sessions.
+        });
+      window.latestAreaReport = latestAreaReport;
+      renderAreas();
 
       let metrics = {
         totalTimeSpent: 0,
@@ -2138,17 +2274,6 @@
           });
         }
 
-        // Add in-progress session time (not yet committed to timeSpentOnDay)
-        if (includeRunningTimer && !task.parentId && (task.currentSessionTime || 0) > 0) {
-          const today = toLocalDate(new Date());
-          if (dateRange.includes(today)) {
-            const idx = dateRange.indexOf(today);
-            const cs = task.currentSessionTime;
-            metrics.weeklyData.data[idx] += cs;
-            taskTimeInRange += cs;
-          }
-        }
-
         // Tally Project/Tag Time and Total Tasks if active in window
         if (taskTimeInRange > 0) {
           metrics.totalTimeSpent += taskTimeInRange;
@@ -2227,6 +2352,7 @@
     // Which tab is currently visible? Returns its key, display label and root node.
     const getActiveViewNode = () => {
       const tabs = [
+        { key: 'areas', label: 'Areas' },
         { key: 'dashboard', label: 'Dashboard' },
         { key: 'details', label: 'Detailed List' },
         { key: 'drilldown', label: 'By Project / Tag' }
@@ -2443,7 +2569,15 @@
       const rows = [];
       const statusOf = (e) => e.late ? 'Late' : e.overdue ? 'Overdue' : e.isDone ? 'Done' : 'In Progress';
 
-      if (tabKey === 'details' || tabKey === 'drilldown') {
+      if (tabKey === 'areas') {
+        rows.push(row(['Area', 'Time', 'Share (%)', 'Tracked tasks']));
+        latestAreaReport.groups.forEach(group => rows.push(row([
+          group.label, formatTime(group.timeMs),
+          latestAreaReport.totalTimeMs ? (group.timeMs / latestAreaReport.totalTimeMs * 100).toFixed(1) : '0.0',
+          group.taskCount,
+        ])));
+        rows.push(row(['Total', formatTime(latestAreaReport.totalTimeMs), latestAreaReport.totalTimeMs ? '100.0' : '0.0', latestAreaReport.trackedTaskCount]));
+      } else if (tabKey === 'details' || tabKey === 'drilldown') {
         let entries = m.tableEntries;
         if (tabKey === 'details') {
           entries = sortEntries(entries, currentSort.key, currentSort.dir);
@@ -2485,7 +2619,12 @@
       const suffix = range ? ` (${range})` : '';
       const lines = [];
 
-      if (tabKey === 'details') {
+      if (tabKey === 'areas') {
+        lines.push(`${b}Time by Area${b}${suffix}`);
+        lines.push(`Total tracked: ${formatTime(latestAreaReport.totalTimeMs)}`);
+        latestAreaReport.groups.forEach(group => lines.push(`• ${group.label}: ${formatTime(group.timeMs)} (${group.taskCount} tracked task(s))`));
+        lines.push('Grouped by current parent-task area assignment; conflicting tasks count once.');
+      } else if (tabKey === 'details') {
         lines.push(`${b}Detailed Time Log${b}${suffix}`);
         lines.push('');
         lines.push('| Date | Project | Task | Time | Status |');
@@ -2648,8 +2787,6 @@
             controls: [{ type: 'chips', key: 'excludedProjects', source: 'projects' }] },
           { label: 'Excluded tags', hint: 'A task carrying any excluded tag is dropped',
             controls: [{ type: 'chips', key: 'excludedTags', source: 'tags' }] },
-          { label: 'Count the running timer', hint: 'Adds the in-progress session to today’s total',
-            controls: [{ type: 'toggle', key: 'includeRunningTimer' }] },
           { label: 'List subtasks as their own rows', hint: 'Detailed List only — a parent’s time already rolls up its subtasks, so totals never change',
             controls: [{ type: 'toggle', key: 'showSubtaskRows' }] },
           { label: 'Minimum entry length', hint: 'Keeps 30-second scraps out of the totals and the table',
@@ -2987,7 +3124,11 @@
       applyAppearance();
       restartLiveUpdate();
       currentSort = { key: getSetting('sortKey'), dir: getSetting('sortDir') };
-      if (reprocess) processData(cachedTasks, cachedProjects, cachedTags);
+      if (window.PluginAPI && snapshotArchiveSetting !== null && snapshotArchiveSetting !== getSetting('includeArchived')) {
+        hasDataSnapshot = false;
+        void pullDataFromSP();
+      }
+      if (reprocess && hasDataSnapshot) processData(cachedTasks, cachedProjects, cachedTags);
       renderSettingsPanel();
     };
 
@@ -3015,7 +3156,7 @@
 
     const exportSettings = () => {
       const blob = new Blob([JSON.stringify(SETTINGS, null, 2)], { type: 'application/json' });
-      triggerDownload(blob, 'settings', `sp-dashboard-settings-${toLocalDate(new Date())}.json`);
+      triggerDownload(blob, 'settings', `sp-areas-dashboard-settings-${toLocalDate(new Date())}.json`);
       showToast('Settings exported');
     };
 
@@ -3047,9 +3188,6 @@
         SETTINGS[key] = Array.isArray(def) ? def.slice() : def;
       });
       persistSettings();
-      Object.keys(LEGACY_KEY_MAP).forEach(k => {
-        try { localStorage.removeItem(k); } catch (e) { /* ignore */ }
-      });
       applyDefaultSelections();
       setPieDimension(resolveDefault('pieMetricMode', 'pieDimPinned', 'pieDimLast'));
       applySettings();
@@ -3184,6 +3322,7 @@
     window.getDueBounds = getDueBounds;
     window.switchTab = switchTab;
     window.processData = processData;
+    window.renderAreas = renderAreas;
     window.timeGoalKindForPeriod = timeGoalKindForPeriod;
     window.updateBarChart = updateBarChart;
     window.updatePieChart = updatePieChart;
@@ -3202,175 +3341,76 @@
     window.triggerDownload = triggerDownload;
     window.renderNativePieChart = renderNativePieChart;
 
-    // --- SP INTEGRATION / NATIVE IFRAME COMMS ---
-    const pullDataFromSP = async () => {
-      debugLog("[sp-dashboard] pullDataFromSP invoked, PluginAPI?", !!window.PluginAPI);
-      // Serialising every done task is expensive on a large vault, so the whole
-      // diagnostic block only runs when debug logging is on.
-      const logDoneTasks = (label, tasks) => {
-        if (!getSetting('debugLogging')) return;
-        const done = tasks.filter(t => t.isDone);
-        debugLog(`[sp-dashboard] ${label} done:`, JSON.stringify(done.map(t => ({ id: t.id, title: t.title, doneOn: t.doneOn })), null, 2));
-      };
-      try {
-        if (window.PluginAPI) {
-          const activeTasks = await window.PluginAPI.getTasks() || [];
-          debugLog("[sp-dashboard] received activeTasks count", activeTasks.length);
-          logDoneTasks('activeTasks', activeTasks);
-
-          // Settings › Data & Filtering. Skipping the archive entirely is the
-          // cheapest win available on a vault with a long history.
-          const archivedTasks = getSetting('includeArchived')
-            ? (await window.PluginAPI.getArchivedTasks() || [])
-            : [];
-          debugLog("[sp-dashboard] received archivedTasks count", archivedTasks.length);
-          logDoneTasks('archivedTasks', archivedTasks);
-
-          // Deduplicate tasks: use Map to ensure each task ID appears only once
-          // Active tasks take precedence over archived (appear later in spread, so overwrite)
-          const taskMap = new Map();
-          const duplicateIds = new Set();
-          archivedTasks.forEach(task => {
-            if (taskMap.has(task.id)) {
-              duplicateIds.add(task.id);
-            }
-            taskMap.set(task.id, task);
-          });
-          activeTasks.forEach(task => {
-            if (taskMap.has(task.id)) {
-              duplicateIds.add(task.id);
-            }
-            taskMap.set(task.id, task);
-          });
-          cachedTasks = Array.from(taskMap.values());
-          debugLog("[sp-dashboard] after deduplication, unique tasks count", cachedTasks.length);
-          if (duplicateIds.size > 0) {
-            debugLog("[sp-dashboard] duplicate task IDs found:", Array.from(duplicateIds));
-          }
-          const finalDoneCount = cachedTasks.filter(t => t.isDone).length;
-          debugLog("[sp-dashboard] final cachedTasks done count:", finalDoneCount);
-          cachedProjects = await window.PluginAPI.getAllProjects() || [];
-          debugLog("[sp-dashboard] received projects count", cachedProjects.length);
-          // Tags are supplied via postMessage from plugin.js (host context).
-          // Fall back to a direct call if the iframe API exposes it.
-          if (cachedTags.length === 0) {
-            const getTagsFn = window.PluginAPI.getTags || window.PluginAPI.getAllTags;
-            if (getTagsFn) {
-              cachedTags = (await getTagsFn.call(window.PluginAPI)) || [];
-            }
-          }
-          debugLog("[sp-dashboard] tags count", cachedTags.length);
-          processData(cachedTasks, cachedProjects, cachedTags);
-        } else {
-          console.warn("[sp-dashboard] PluginAPI missing inside pullDataFromSP");
-        }
-      } catch (err) {
-        console.error("[sp-dashboard] Dashboard failed to fetch SP data:", err);
+    // One read-only host snapshot at a time. Tags refresh even when empty.
+    let pullInFlight = null;
+    let refreshRequested = false;
+    const setDataStatus = (message, unavailable = !hasDataSnapshot) => {
+      document.body.classList.toggle('data-unavailable', unavailable);
+      document.getElementById('share-btn').disabled = unavailable;
+      const status = document.getElementById('areas-load-status');
+      status.replaceChildren(document.createTextNode(message));
+      status.classList.toggle('hidden', !message);
+      if (unavailable && window.PluginAPI) {
+        const retry = document.createElement('button');
+        retry.type = 'button'; retry.textContent = 'Retry'; retry.className = 'areas-filter';
+        retry.style.marginLeft = '0.75rem';
+        retry.addEventListener('click', () => pullDataFromSP());
+        status.appendChild(retry);
       }
     };
-
-    // Listen for the light refresh trigger from plugin.js.
-    //
-    // plugin.js runs in the host page and posts into this frame, so the only
-    // legitimate sender is our immediate parent. Without this check anything
-    // holding a handle on this iframe — another installed plugin, for instance
-    // — can replace the tag list and quietly change what the charts, tables and
-    // exports report. This is the mirror of the sender check plugin.js already
-    // performs in the other direction (isOwnPluginWindow).
-    //
-    // Standalone file:// development still works: with no parent frame,
-    // window.parent === window, so the mock data path is unaffected.
-    window.addEventListener('message', (event) => {
-      if (event.source !== window.parent) {
-        debugWarn("[sp-dashboard] ignoring message from an unexpected sender");
+    const pullDataFromSP = async () => {
+      if (!window.PluginAPI) {
+        hasDataSnapshot = false;
+        latestMetrics = null; window.latestMetrics = null;
+        latestAreaReport = null; window.latestAreaReport = null;
+        setDataStatus('Task data unavailable. Open Areas Dashboard inside Super Productivity.', true);
         return;
       }
-      debugLog("[sp-dashboard] message event received in iframe", event.data);
-      if (event.data && event.data.type === 'SP_STATE_CHANGED') {
-        if (Array.isArray(event.data.tags) && event.data.tags.length > 0) {
-          const tags = sanitizeIncomingTags(event.data.tags);
-          if (tags.length > 0) cachedTags = tags;
-        }
-        pullDataFromSP();
-      }
-    });
-
-    // Initial Bootstrap & Fallback Data Generation
-    setTimeout(() => {
-      debugLog("[sp-dashboard] bootstrap timeout fired; PluginAPI exists?", !!window.PluginAPI);
-      if (window.PluginAPI) {
-        pullDataFromSP();
-        restartLiveUpdate();
-      } else {
-        debugLog("[sp-dashboard] No PluginAPI detected. Loading mock data...");
-        
-        // Simulating the exact screenshot payload
-        const dates = [
-          new Date('2026-02-22').toISOString().split('T')[0],
-          new Date('2026-02-21').toISOString().split('T')[0],
-          new Date('2026-02-20').toISOString().split('T')[0],
-          new Date('2026-02-19').toISOString().split('T')[0]
-        ];
-
-        cachedProjects = [
-          { id: "p1", title: "Website Redesign" },
-          { id: "p2", title: "Marketing Campaign" }
-        ];
-
-        cachedTags = [
-          { id: "tag-fe", title: "Frontend" },
-          { id: "tag-be", title: "Backend" },
-          { id: "tag-ux", title: "Design" }
-        ];
-
-        cachedTasks = [
-          {
-            id: "t1", parentId: null, title: "Create Figma Mockups", isDone: true, doneOn: new Date('2026-02-22T10:00Z').getTime(), projectId: "p1",
-            tagIds: ["tag-ux", "tag-fe"],
-            timeSpentOnDay: { [dates[0]]: 14400000 /* 4h */, [dates[1]]: 7200000 /* 2h */ }
-          },
-          {
-            id: "t2", parentId: null, title: "General Admin", isDone: false, projectId: null,
-            tagIds: [],
-            timeSpentOnDay: { [dates[0]]: 3600000 /* 1h */ },
-            currentSessionTime: 1800000 /* 30m in-progress session */
-          },
-          {
-            id: "t3", parentId: null, title: "Draft Email Copy", isDone: true, doneOn: new Date('2026-02-20T10:00Z').getTime(), projectId: "p2",
-            tagIds: ["tag-fe"],
-            timeSpentOnDay: { [dates[2]]: 18000000 /* 5h */ }
-          },
-          {
-            id: "t4", parentId: null, title: "Setup Database", isDone: false, projectId: "p1",
-            tagIds: ["tag-be"],
-            timeSpentOnDay: { [dates[3]]: 10800000 /* 3h */ }, dueDay: "2026-02-18" // Overdue
-          },
-          {
-            id: "t5", parentId: null, title: "Write Documentation", isDone: false, projectId: "p1",
-            tagIds: ["tag-be"],
-            timeSpentOnDay: {}, // No time logged in this period – not included in denominator
-            dueDay: "2026-02-28" // Future due date
-          },
-          {
-            id: "t6", parentId: null, title: "API Integration", isDone: false, projectId: "p1",
-            tagIds: ["tag-be", "tag-fe"],
-            timeSpentOnDay: { [dates[0]]: 5400000 /* 1.5h */ }, dueDay: "2026-02-17" // Overdue with time logged
-          },
-          {
-            id: "t6-1", parentId: "t6", title: "Fix authentication endpoint", isDone: true, doneOn: new Date('2026-02-21T14:00Z').getTime(), projectId: "p1",
-            tagIds: ["tag-be"],
-            timeSpentOnDay: { [dates[1]]: 7200000 /* 2h */ } // Child task (subtask of t6)
-          },
-          {
-            id: "t7", parentId: null, title: "Review Code", isDone: true, doneOn: new Date('2026-02-21T15:00Z').getTime(), projectId: "p1",
-            tagIds: ["tag-fe"],
-            timeSpentOnDay: { [dates[1]]: 3600000 /* 1h */ }, dueDay: "2026-02-19" // Late - completed 2 days after due date
+      if (pullInFlight) { refreshRequested = true; return pullInFlight; }
+      setDataStatus('Refreshing task data…');
+      pullInFlight = (async () => {
+        do {
+          refreshRequested = false;
+          try {
+          const includeArchive = getSetting('includeArchived');
+          const [active, archived, projects, tags] = await Promise.all([
+            window.PluginAPI.getTasks(),
+            includeArchive ? window.PluginAPI.getArchivedTasks() : Promise.resolve([]),
+            window.PluginAPI.getAllProjects(),
+            window.PluginAPI.getAllTags(),
+          ]);
+          if (![active, archived, projects, tags].every(Array.isArray)) throw new Error('Invalid host snapshot');
+          if (includeArchive !== getSetting('includeArchived')) { refreshRequested = true; continue; }
+          snapshotArchiveSetting = includeArchive;
+          const taskMap = new Map([...archived, ...active].filter(t => t && typeof t.id === 'string').map(t => [t.id, t]));
+          processData([...taskMap.values()], projects, sanitizeIncomingTags(tags));
+          setDataStatus('');
+          } catch (err) {
+          hasDataSnapshot = false;
+          latestMetrics = null; window.latestMetrics = null;
+          latestAreaReport = null; window.latestAreaReport = null;
+          setDataStatus('Task data unavailable. Check the connection and retry.', true);
+          debugWarn('[sp-areas-dashboard] read-only host refresh failed', err);
           }
-        ];
-
-        processData(cachedTasks, cachedProjects, cachedTags);
+        } while (refreshRequested);
+      })();
+      try { await pullInFlight; }
+      finally {
+        pullInFlight = null;
       }
-    }, 500);
+    };
+    window.pullDataFromSP = pullDataFromSP;
+    window.addEventListener('message', event => {
+      if (event.source !== window.parent || !event.data || event.data.type !== 'SP_STATE_CHANGED') return;
+      void pullDataFromSP();
+    });
+    if (window.PluginAPI) {
+      const start = () => { void pullDataFromSP(); restartLiveUpdate(); };
+      if (typeof window.PluginAPI.onReady === 'function') window.PluginAPI.onReady(start);
+      else start();
+    } else {
+      setDataStatus('Task data unavailable. Open Areas Dashboard inside Super Productivity.', true);
+    }
 
   </script>
 </body>

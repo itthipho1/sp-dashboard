@@ -1,8 +1,8 @@
 # Makefile for Date Range Reporter Plugin
 # Builds a distributable zip file for Super Productivity
 
-PROJECT = sp-dashboard
-PLUGIN_DIR = $(PROJECT)
+PROJECT = sp-areas-dashboard
+PLUGIN_DIR = sp-dashboard
 ZIP_FILE = $(PROJECT).zip
 VERSION := $(shell grep '"version"' package.json | sed 's/.*"version": "\(.*\)".*/\1/')
 DESCRIPTION := $(shell grep '"description"' package.json | sed 's/.*"description": "\(.*\)".*/\1/')
@@ -16,20 +16,10 @@ PRERELEASE := $(if $(findstring -,$(VERSION)),--prerelease,)
 .PHONY: build clean help release release-check test
 
 # Default target
-build: clean
-	@echo "Building plugin zip file..."
-	@echo "Preparing build directory..."
-	@mkdir -p build/$(PLUGIN_DIR)
-	@cp -R $(PLUGIN_DIR)/* build/$(PLUGIN_DIR)/
-	@echo "Generating manifest.json from template..."
-	@VERSION="$(VERSION)" DESCRIPTION="$(DESCRIPTION)" sh -c '\
-		sed -e "s/{{VERSION}}/$$VERSION/g" -e "s|{{DESCRIPTION}}|$$DESCRIPTION|g" \
-		$(PLUGIN_DIR)/manifest.json.template > build/$(PLUGIN_DIR)/manifest.json'
-	@rm -f build/$(PLUGIN_DIR)/manifest.json.template
-	@echo "Minifying HTML (inline CSS/JS preserved) -> build/$(PLUGIN_DIR)/index.html"
-	@npm run build:min
-	@cd build/$(PLUGIN_DIR) && zip -r ../../$(ZIP_FILE) . -x "manifest.json.template"
-	@echo "✓ Plugin packaged successfully: $(ZIP_FILE)"
+build:
+	@npm run build
+	@cd build/$(PLUGIN_DIR) && zip -r ../../$(ZIP_FILE) index.html plugin.js manifest.json icon.svg LICENSE
+	@echo "Plugin packaged: $(ZIP_FILE)"
 
 screenshot:
 	@echo "Generating screenshots..."

@@ -1,19 +1,27 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { buildHtml } from '../scripts/plugin-source.mjs';
 
 // Load the generated HTML content for the test environment
 // file moved into the sp-dashboard subdirectory
-const html = readFileSync(resolve(__dirname, '../sp-dashboard/index.html'), 'utf8');
+const html = buildHtml();
 
 const toLocalDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
 describe('Date Range Reporter UI', () => {
-  let scriptContent;
+  let listenerRemovers;
 
   beforeEach(() => {
     // Reset the DOM and clear any persisted localStorage state between tests
     localStorage.clear();
+    delete window.PluginAPI;
+    listenerRemovers = [];
+    const addEventListener = window.addEventListener.bind(window);
+    vi.spyOn(window, 'addEventListener').mockImplementation((type, listener, options) => {
+      listenerRemovers.push(() => window.removeEventListener(type, listener, options));
+      addEventListener(type, listener, options);
+    });
     document.documentElement.innerHTML = html;
 
     // In a JSDOM environment, we need to manually execute the script 
@@ -26,6 +34,13 @@ describe('Date Range Reporter UI', () => {
       const runScript = new Function(scriptElement.textContent);
       runScript.call(window);
     }
+  });
+
+  afterEach(() => {
+    listenerRemovers.forEach(remove => remove());
+    delete window.PluginAPI;
+    vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   describe('Utility Functions', () => {
@@ -274,7 +289,7 @@ describe('Date Range Reporter UI', () => {
       expect(document.getElementById('stat-tasks').innerText).toBe('0');
     });
 
-    it('should include currentSessionTime in totalTimeSpent and bar chart when today is in range', () => {
+    it('uses native day totals and does not add an unsupported currentSessionTime field', () => {
       const todayStr = toLocalDate(new Date());
       const activeTask = {
         id: 't-active',
@@ -285,11 +300,13 @@ describe('Date Range Reporter UI', () => {
         currentSessionTime: 1800000 /* 30m in-progress */
       };
       window.processData([activeTask], []);
-      // stat-time should reflect 1.5h total (committed + in-progress)
-      expect(document.getElementById('stat-time').innerText).toBe('1h 30m');
+      // Native tracking is already reflected in timeSpentOnDay; adding a synthetic
+      // session field would double-count live time in the released Task API.
+      expect(document.getElementById('stat-time').innerText).toBe('1h 0m');
+      expect(window.latestMetrics.weeklyData.data.reduce((sum, value) => sum + value, 0)).toBe(3600000);
     });
 
-    it('should include currentSessionTime even when no committed time for today', () => {
+    it('does not fabricate tracked time from currentSessionTime when the native day map is empty', () => {
       const todayStr = toLocalDate(new Date());
       const activeTask = {
         id: 't-active-only',
@@ -300,7 +317,8 @@ describe('Date Range Reporter UI', () => {
         currentSessionTime: 900000 /* 15m in-progress */
       };
       window.processData([activeTask], []);
-      expect(document.getElementById('stat-time').innerText).toBe('0h 15m');
+      expect(document.getElementById('stat-time').innerText).toBe('0h 0m');
+      expect(window.latestMetrics.tableEntries).toEqual([]);
     });
 
     it('should deduplicate tasks that appear in both active and archived lists', () => {
@@ -400,7 +418,10 @@ describe('Date Range Reporter UI', () => {
       const dashBtn = document.getElementById('tab-btn-dashboard');
       const detailsBtn = document.getElementById('tab-btn-details');
 
-      // Default state: Dashboard should be visible and active
+      // The fork opens Areas; native dashboard navigation remains available.
+      expect(document.getElementById('view-areas').classList.contains('hidden')).toBe(false);
+      expect(document.getElementById('tab-btn-areas').classList.contains('active')).toBe(true);
+      window.switchTab('dashboard');
       expect(dashView.classList.contains('hidden')).toBe(false);
       expect(detailsView.classList.contains('hidden')).toBe(true);
       expect(dashBtn.classList.contains('active')).toBe(true);
@@ -760,6 +781,8 @@ describe('Date Range Reporter UI', () => {
 
     it('getActiveViewNode should report the currently visible tab', () => {
       window.processData(mockTasks, mockProjects, mockTags);
+      expect(window.getActiveViewNode().key).toBe('areas');
+      window.switchTab('dashboard');
       expect(window.getActiveViewNode().key).toBe('dashboard');
       window.switchTab('details');
       expect(window.getActiveViewNode().key).toBe('details');
@@ -880,25 +903,29 @@ describe('Date Range Reporter UI', () => {
         expect(raw.schemaVersion).toBe(1);
       });
 
-      it('migrates the pre-settings localStorage keys and removes them', () => {
+      it('keeps upstream settings isolated without migrating or removing its legacy keys', () => {
         localStorage.clear();
         localStorage.setItem('sp-dashboard-date-preset', 'this-week');
         localStorage.setItem('sp-dashboard-pie-dim', 'tag');
         localStorage.setItem('sp-dashboard-drill-entity', 'Work');
+        localStorage.setItem('sp-dashboard-settings', JSON.stringify({ timeFormat: 'decimal' }));
 
-        // Re-boot the script against the seeded legacy keys.
+        // Re-boot the fork beside existing upstream settings.
         document.documentElement.innerHTML = html;
         const script = Array.from(document.querySelectorAll('script'))
           .find(s => !s.src && s.textContent.includes('processData'));
         new Function(script.textContent).call(window);
 
-        expect(window.getSetting('periodLast')).toBe('this-week');
-        expect(window.getSetting('pieDimLast')).toBe('tag');
-        expect(window.getSetting('drillEntityLast')).toBe('Work');
-        expect(localStorage.getItem('sp-dashboard-date-preset')).toBeNull();
-        expect(localStorage.getItem('sp-dashboard-pie-dim')).toBeNull();
-        // …and the migrated values drive the opening state.
-        expect(document.getElementById('date-preset').value).toBe('this-week');
+        expect(window.SETTINGS_KEY).toBe('sp-areas-dashboard-settings');
+        expect(window.getSetting('periodLast')).toBe('');
+        expect(window.getSetting('drillEntityLast')).toBe('');
+        expect(window.getSetting('timeFormat')).toBe('hm');
+        expect(localStorage.getItem('sp-dashboard-date-preset')).toBe('this-week');
+        expect(localStorage.getItem('sp-dashboard-pie-dim')).toBe('tag');
+        expect(localStorage.getItem('sp-dashboard-drill-entity')).toBe('Work');
+        expect(JSON.parse(localStorage.getItem('sp-dashboard-settings')).timeFormat).toBe('decimal');
+        expect(document.getElementById('date-preset').value).toBe('today');
+        expect(document.getElementById('view-areas').classList.contains('hidden')).toBe(false);
       });
 
       it('ignores unknown keys and repairs values of the wrong type', () => {
@@ -916,11 +943,14 @@ describe('Date Range Reporter UI', () => {
       });
 
       it('reset returns every setting to its default', () => {
+        localStorage.setItem('sp-dashboard-date-preset', 'this-week');
         window.setSetting('timeFormat', 'minutes');
         window.setSetting('excludedProjects', ['Personal']);
         window.resetSettings();
         expect(window.getSetting('timeFormat')).toBe('hm');
         expect(window.getSetting('excludedProjects')).toEqual([]);
+        expect(window.getSetting('tabPinned')).toBe('areas');
+        expect(localStorage.getItem('sp-dashboard-date-preset')).toBe('this-week');
       });
 
       it('import applies a settings blob and drops keys it does not recognise', () => {
@@ -949,9 +979,9 @@ describe('Date Range Reporter UI', () => {
 
       it('rejects an out-of-enum tab, which previously threw during init', () => {
         window.importSettings(JSON.stringify({ tabPinned: 'evil', tabMode: 'pin' }));
-        expect(window.getSetting('tabPinned')).toBe('dashboard');
+        expect(window.getSetting('tabPinned')).toBe('areas');
         expect(() => reboot()).not.toThrow();
-        expect(document.getElementById('view-dashboard').classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('view-areas').classList.contains('hidden')).toBe(false);
       });
 
       it('rejects an out-of-enum tabLast on the remember path too', () => {
@@ -959,7 +989,7 @@ describe('Date Range Reporter UI', () => {
         // Falls back to '' — "nothing remembered" — so tabPinned decides.
         expect(window.getSetting('tabLast')).toBe('');
         expect(() => reboot()).not.toThrow();
-        expect(document.getElementById('view-dashboard').classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('view-areas').classList.contains('hidden')).toBe(false);
       });
 
       it('switchTab falls back rather than throwing on an unknown tab', () => {
@@ -1016,8 +1046,8 @@ describe('Date Range Reporter UI', () => {
         expect({}.p2).toBeUndefined();
       });
 
-      // The tag picker in Settings reads the cached tag list, so it doubles as
-      // a window onto what a postMessage did or didn't manage to change.
+      // A host message is only a refresh signal. Native APIs supply the actual
+      // tag list; message payloads must never inject labels into reports.
       const tagPickerOptions = () => {
         window.openSettings();
         window.renderSettingsPanel();
@@ -1027,26 +1057,43 @@ describe('Date Range Reporter UI', () => {
         return picker ? Array.from(picker.options).map(o => o.textContent) : [];
       };
 
-      it('accepts SP_STATE_CHANGED from the host frame', () => {
+      const installNativeReadApi = nativeTags => {
+        window.PluginAPI = {
+          getTasks: vi.fn().mockResolvedValue([]),
+          getArchivedTasks: vi.fn().mockResolvedValue([]),
+          getAllProjects: vi.fn().mockResolvedValue([]),
+          getAllTags: vi.fn().mockResolvedValue(nativeTags),
+        };
+        return window.PluginAPI;
+      };
+
+      it('accepts a host refresh signal and reads tags from the native API instead of its payload', async () => {
+        const api = installNativeReadApi([{ id: 'h1', title: 'FromNativeApi' }]);
         window.dispatchEvent(new MessageEvent('message', {
-          data: { type: 'SP_STATE_CHANGED', tags: [{ id: 'h1', title: 'FromHost' }] },
+          data: { type: 'SP_STATE_CHANGED', tags: [{ id: 'injected', title: 'PayloadLabel' }] },
           source: window.parent
         }));
-        expect(tagPickerOptions()).toContain('FromHost');
+        await window.pullDataFromSP();
+        expect(api.getTasks).toHaveBeenCalled();
+        expect(api.getAllTags).toHaveBeenCalled();
+        expect(tagPickerOptions()).toContain('FromNativeApi');
+        expect(tagPickerOptions()).not.toContain('PayloadLabel');
       });
 
-      it('keeps only well-formed tags from the host message', () => {
+      it('sanitizes the native tag response before populating settings controls', async () => {
+        installNativeReadApi([
+          { id: 'good', title: 'Keep' },
+          { id: 'no-title' },                       // title falls back to id
+          'a string', null, 42, [],                 // not objects at all
+          { title: 'no id' },                       // unusable without an id
+          { id: '', title: 'empty id' },
+          { id: 'extra', title: 'Fields', evil: () => {}, __proto__: { x: 1 } }
+        ]);
         window.dispatchEvent(new MessageEvent('message', {
-          data: { type: 'SP_STATE_CHANGED', tags: [
-            { id: 'good', title: 'Keep' },
-            { id: 'no-title' },                       // title falls back to id
-            'a string', null, 42, [],                 // not objects at all
-            { title: 'no id' },                       // unusable without an id
-            { id: '', title: 'empty id' },
-            { id: 'extra', title: 'Fields', evil: () => {}, __proto__: { x: 1 } }
-          ] },
+          data: { type: 'SP_STATE_CHANGED' },
           source: window.parent
         }));
+        await window.pullDataFromSP();
         const opts = tagPickerOptions();
         expect(opts).toContain('Keep');
         expect(opts).toContain('no-title');   // id used as the label
@@ -1056,14 +1103,17 @@ describe('Date Range Reporter UI', () => {
         expect({}.x).toBeUndefined();
       });
 
-      it('ignores SP_STATE_CHANGED from any other sender', () => {
+      it('ignores foreign refresh signals and cannot inject their labels or trigger native reads', async () => {
         // plugin.js posts from the host page. Anything else with a handle on
         // this frame — another installed plugin — must not drive our state.
+        const api = installNativeReadApi([{ id: 'h1', title: 'FromNativeApi' }]);
         window.dispatchEvent(new MessageEvent('message', {
-          data: { type: 'SP_STATE_CHANGED', tags: [{ id: 'h1', title: 'FromHost' }] },
+          data: { type: 'SP_STATE_CHANGED' },
           source: window.parent
         }));
-        expect(tagPickerOptions()).toContain('FromHost');
+        await window.pullDataFromSP();
+        expect(tagPickerOptions()).toContain('FromNativeApi');
+        Object.values(api).forEach(read => read.mockClear());
 
         window.dispatchEvent(new MessageEvent('message', {
           data: { type: 'SP_STATE_CHANGED', tags: [{ id: 'e1', title: 'AttackerTag' }] },
@@ -1071,7 +1121,8 @@ describe('Date Range Reporter UI', () => {
         }));
         const opts = tagPickerOptions();
         expect(opts).not.toContain('AttackerTag');
-        expect(opts).toContain('FromHost'); // the real list survived
+        expect(opts).toContain('FromNativeApi'); // the authoritative list survived
+        Object.values(api).forEach(read => expect(read).not.toHaveBeenCalled());
       });
     });
 
@@ -1207,15 +1258,15 @@ describe('Date Range Reporter UI', () => {
         expect(window.latestMetrics.tableEntries.length).toBe(1);
       });
 
-      it('includeRunningTimer excludes the in-progress session when off', () => {
+      it('native day-map updates advance totals without an extra running-timer setting', () => {
         const running = [{ id: 'r1', parentId: null, title: 'Timing now', isDone: false,
           projectId: 'p1', tagIds: [], timeSpentOnDay: { [todayStr]: 3600000 }, currentSessionTime: 1800000 }];
         window.processData(running, projects, []);
-        expect(document.getElementById('stat-time').innerText).toBe('1h 30m');
-
-        window.setSetting('includeRunningTimer', false);
-        window.processData(running, projects, []);
         expect(document.getElementById('stat-time').innerText).toBe('1h 0m');
+
+        window.processData([{ ...running[0], timeSpentOnDay: { [todayStr]: 5400000 } }], projects, []);
+        expect(document.getElementById('stat-time').innerText).toBe('1h 30m');
+        expect(window.getAllSettings().includeRunningTimer).toBeUndefined();
       });
 
       it('showSubtaskRows lists subtasks without changing any total', () => {
